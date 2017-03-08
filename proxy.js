@@ -11,7 +11,7 @@ var dgram    = require('dgram')
   , configlib   = require('./lib/config');
 
 var packet   = new events.EventEmitter();
-var startup_time = Math.round(new Date().getTime() / 1000);
+var startup_time = new Date().getTime();
 var node_status = [];
 var workers = [];  // Keep track of all forked childs
 var node_ring = {};
@@ -184,10 +184,10 @@ configlib.configFile(process.argv[2], function (conf, oldConfig) {
             break;
 
           case "status":
-            var now    = Math.round(new Date().getTime() / 1000);
+            var now    = new Date().getTime();
             var uptime = now - startup_time;
 
-            stream.write("uptime: " + uptime + "\n");
+            stream.write("uptime: " + (uptime * 0.001) + "\n");
 
             stream.write("nodes: ");
             ring.servers.forEach(function(server, index, array) {

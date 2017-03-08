@@ -24,10 +24,10 @@ var counter_rates = {};
 var timer_data = {};
 var pctThreshold = null;
 var flushInterval, keyFlushInt, serversLoaded, mgmtServer;
-var startup_time = Math.round(new Date().getTime() / 1000);
+var startup_time = monotonicTimeMs();
 var backendEvents = new events.EventEmitter();
 var healthStatus = config.healthStatus || 'up';
-var old_timestamp = 0;
+var nextFlush;
 var timestamp_lag_namespace;
 var keyNameSanitize = true;
 
@@ -68,13 +68,18 @@ function startServer(config, name, callback) {
 // global for conf
 var conf;
 
+// Fetch time monotonically
+function monotonicTimeMs() {
+  var hrtime = process.hrtime();
+  return Math.round(hrtime[0] * 1000 + hrtime[1] / 1e6);
+}
+
 // Flush metrics to each backend.
 function flushMetrics() {
-  var time_stamp = Math.round(new Date().getTime() / 1000);
-  if (old_timestamp > 0) {
-    gauges[timestamp_lag_namespace] = (time_stamp - old_timestamp - (Number(conf.flushInterval)/1000));
+  var time_stamp = monotonicTimeMs();
+  if (nextFlush) {
+    gauges[timestamp_lag_namespace] = time_stamp - nextFlush;
   }
-  old_timestamp = time_stamp;
 
   var metrics_hash = {
     counters: counters,
@@ -155,7 +160,12 @@ function flushMetrics() {
   // Performing this setTimeout at the end of this method rather than the beginning
   // helps ensure we adapt to negative clock skew by letting the method's latency
   // introduce a short delay that should more than compensate.
-  setTimeout(flushMetrics, getFlushTimeout(flushInterval));
+  if (nextFlush) {
+    nextFlush += flushInterval;
+  } else {
+    nextFlush = time_stamp + flushInterval;
+  }
+  setTimeout(flushMetrics, Math.max(0, nextFlush - monotonicTimeMs()));
 }
 
 var stats = {
@@ -176,7 +186,7 @@ function sanitizeKeyName(key) {
 }
 
 function getFlushTimeout(interval) {
-    return interval - (new Date().getTime() - startup_time * 1000) % flushInterval
+    return interval - (monotonicTimeMs() - startup_time) % flushInterval
 }
 
 // Global for the logger
@@ -286,7 +296,7 @@ config.configFile(process.argv[2], function (config) {
         }
       }
 
-      stats.messages.last_msg_seen = Math.round(new Date().getTime() / 1000);
+      stats.messages.last_msg_seen = monotonicTimeMs();
     };
 
     // If config.servers isn't specified, use the top-level config for backwards-compatibility
@@ -322,10 +332,10 @@ config.configFile(process.argv[2], function (config) {
             break;
 
           case "stats":
-            var now    = Math.round(new Date().getTime() / 1000);
+            var now    = monotonicTimeMs();
             var uptime = now - startup_time;
 
-            stream.write("uptime: " + uptime + "\n");
+            stream.write("uptime: " + (uptime * 0.001) + "\n");
 
             var stat_writer = function(group, metric, val) {
               var delta;
